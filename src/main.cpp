@@ -1,21 +1,12 @@
-// TODO: Modify CMakeLists.txt so that you can include like this:
-// #include <Dispatcher.h>
-// #include <JobShopInstance.h>
-// #include <Operation.h>
-// #include <Rules.h>
-// #include <Schedule.h>
-#include "lib/Dispatcher.h"
-#include "lib/JobShopInstance.h"
-#include "lib/Operation.h"
-#include "lib/Rules.h"
-#include "lib/Schedule.h"
-// TODO: Maybe make a Solver struct to bundle it all together and remove the
-// includes above?
+#include <Solver.h>
+#include <JobShopInstance.h>
+#include <Operation.h>
+#include <Rules.h>
+#include <Schedule.h>
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -30,7 +21,6 @@ std::map<std::string, Rules::Rule> available_rules;
 
 // Function declarations
 void initialize_rules();
-Schedule solve(JobShopInstance instance, Rules::Rule rule);
 JobShopInstance instance_from_file(const std::filesystem::path &filepath);
 void print_usage(const char *prog_name);
 void read_args(int argc, char *argv[]);
@@ -149,11 +139,11 @@ int main(int argc, char *argv[]) {
     try {
       std::string instance_name = file_path.stem().string();
       std::cout << std::left << std::setw(30) << instance_name << std::flush;
-
       auto start_time = std::chrono::high_resolution_clock::now();
 
       JobShopInstance instance = instance_from_file(file_path);
-      Schedule schedule = solve(instance, rule_to_use);
+      Solver solver(instance, rule_to_use);
+      Schedule schedule = solver.solve();
       int makespan = schedule.makespan();
 
       auto end_time = std::chrono::high_resolution_clock::now();
@@ -208,13 +198,4 @@ JobShopInstance instance_from_file(const std::filesystem::path &filepath) {
   }
 
   return JobShopInstance(jobs, n_machines);
-}
-
-Schedule solve(JobShopInstance instance, Rules::Rule rule) {
-  Dispatcher dispatcher(instance);
-  while (not dispatcher.schedule.is_complete()) {
-    Operation to_schedule = rule(dispatcher);
-    dispatcher.dispatch(to_schedule);
-  }
-  return dispatcher.schedule;
 }

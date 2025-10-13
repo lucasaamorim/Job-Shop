@@ -13,6 +13,7 @@ add_executable(Job-Shop
     src/main.cpp
     src/lib/Dispatcher.cpp
     src/lib/Schedule.cpp
+    src/lib/Solver.cpp
 )
 
 target_include_directories(Job-Shop PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/lib)
