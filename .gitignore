@@ -2,9 +2,12 @@
 .vscode/
 .idea/
 
-#Environment
-.env/*
-.venv/*
+# Environment
+.env/
+.venv/
+
+# Test results
+*.csv
 
 # Prerequisites
 *.d
