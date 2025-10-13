@@ -162,8 +162,7 @@ pair<vector<int>, vector<int>> backwardPass(const Instance &inst, const vector<v
     vector<int> orderTopological = pairOrderTopological.second;
     vector<int> latestStarts(numOperations, INF), latestCompletions(numOperations, INF);
     // Calculando makespan (earlistCompletions_max)
-    int makespan = 0;
-    for(int c: earliestCompletion) makespan = max(makespan, c);
+    int makespan = computeMakespan(earliestCompletion);
     // Calculando tempo de início mais tarde e tempo de conclusão mais tarde de cada operação
     for(int i=orderTopological.size(); i>=0; i++) {
         int vertex = orderTopological[i];
@@ -180,4 +179,15 @@ pair<vector<int>, vector<int>> backwardPass(const Instance &inst, const vector<v
         latestStarts[vertex] = latestCompletions[vertex] - inst.operations[vertex].time; 
     }
     return {latestStarts, latestCompletions};
+}
+
+/**
+ * @brief Calcula o makespan (tempo total de conclusão) a partir dos tempos de término das operações.
+ * @param earliestCompletion Vetor contendo os tempos de conclusão mais cedo de cada operação.
+ * @return O makespan, correspondente ao maior tempo de conclusão.
+ */
+ int computeMakespan(const vector<int> &earliestCompletion) {
+  int makespan = 0;
+  for(int c: earliestCompletion) makespan = max(makespan, c);
+  return makespan;
 }
