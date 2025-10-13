@@ -1,4 +1,4 @@
-#include "Dispatcher.h"
+#include <Dispatcher.h>
 
 std::vector<Operation> Dispatcher::available_operations() {
   std::vector<Operation> available_ops;

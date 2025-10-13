@@ -1,14 +1,9 @@
 #pragma once
 
-// TODO: Modify CMakeLists.txt so that you can include like this:
-// #include <Dispatcher.h>
-// #include <JobShopInstance.h>
-// #include <Operation.h>
-// #include <Schedule.h>
-#include "Dispatcher.h"
-#include "JobShopInstance.h"
-#include "Operation.h"
-#include "Schedule.h"
+#include <Dispatcher.h>
+#include <JobShopInstance.h>
+#include <Operation.h>
+#include <Schedule.h>
 
 #include <vector>
 

@@ -4,11 +4,9 @@
 // #include <JobShopInstance.h>
 // #include <ScheduledOperation.h>
 
-#include "JobShopInstance.h"
-#include "ScheduledOperation.h"
+#include <JobShopInstance.h>
+#include <ScheduledOperation.h>
 
-#include <algorithm>
-#include <numeric>
 #include <vector>
 
 struct Schedule {

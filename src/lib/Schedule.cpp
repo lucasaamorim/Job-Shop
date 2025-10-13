@@ -1,4 +1,7 @@
-#include "Schedule.h"
+#include <Schedule.h>
+
+#include <algorithm>
+#include <numeric>
 
 void Schedule::add(ScheduledOperation op) {
   schedule[op.machine_id].push_back(op);

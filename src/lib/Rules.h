@@ -1,10 +1,7 @@
 #pragma once
 
-// TODO: Modify CMakeLists.txt so that you can include like this:
-// #include <Dispatcher.h>
-// #include <Operation.h>
-#include "Dispatcher.h"
-#include "Operation.h"
+#include <Dispatcher.h>
+#include <Operation.h>
 
 #include <algorithm>
 #include <functional>
