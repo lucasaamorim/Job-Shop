@@ -117,6 +117,8 @@ int main(int argc, char *argv[]) {
     instance_files.push_back(instance_path);
   }
 
+  std::sort(instance_files.begin(),instance_files.end());
+
   std::string output_filename = rule_name + ".csv";
   std::ofstream output_file(output_filename);
 
@@ -127,12 +129,12 @@ int main(int argc, char *argv[]) {
   }
 
   // Write CSV header
-  output_file << "Instance,Runtime (ms),Makespan\n";
+  output_file << "Instance,Runtime (µs),Makespan\n";
   std::cout << "Using rule: " << rule_name << ". Output will be saved to "
             << output_filename << std::endl;
   std::cout << std::string(60, '-') << std::endl;
   std::cout << std::left << std::setw(30) << "Instance" << std::setw(15)
-            << "Runtime (ms)" << std::setw(15) << "Makespan" << std::endl;
+            << "Runtime (µs)" << std::setw(15) << "Makespan" << std::endl;
   std::cout << std::string(60, '-') << std::endl;
 
   for (const auto &file_path : instance_files) {
@@ -147,7 +149,7 @@ int main(int argc, char *argv[]) {
       int makespan = schedule.makespan();
 
       auto end_time = std::chrono::high_resolution_clock::now();
-      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
                           end_time - start_time)
                           .count();
 
