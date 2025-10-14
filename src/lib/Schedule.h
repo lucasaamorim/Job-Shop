@@ -8,19 +8,27 @@
 #include <ScheduledOperation.h>
 
 #include <vector>
+#include <set>
 
 struct Schedule {
   JobShopInstance instance;
-  std::vector<std::vector<ScheduledOperation>> schedule;
+  struct cmp_start_time {
+      bool operator()(const ScheduledOperation &a, const ScheduledOperation &b) const {
+        if (a.start_time != b.start_time) {
+          return a.start_time < b.start_time;
+        }
+        // tie breaker
+        return a.operation.operation_id < b.operation.operation_id;
+      }
+    };
 
-  constexpr static auto cmp_start_time = [](const ScheduledOperation &a,
-                                            const ScheduledOperation &b) {
-    return a.start_time < b.start_time;
-  };
+  typedef std::set<ScheduledOperation, cmp_start_time> op_set;
+
+  std::vector<op_set> schedule;
 
   Schedule(JobShopInstance instance)
       : instance(instance),
-        schedule(instance.n_machines, std::vector<ScheduledOperation>()) {}
+        schedule(instance.n_machines, op_set()) {}
 
   void add(ScheduledOperation op);
 

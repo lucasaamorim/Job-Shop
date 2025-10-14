@@ -24,18 +24,8 @@ inline const Rule most_work_remaining =
   return *std::max_element(
       candidates.begin(), candidates.end(),
       [&dispatcher](const Operation &a, const Operation &b) {
-        const auto &jobs_a = dispatcher.instance.jobs[a.job_id];
-        const auto &jobs_b = dispatcher.instance.jobs[b.job_id];
-        return std::accumulate(jobs_a.begin() + a.position_in_job, jobs_a.end(),
-                               0,
-                               [](int acc, const Operation &op) {
-                                 return acc + op.duration;
-                               }) <
-               std::accumulate(
-                   jobs_b.begin() + b.position_in_job, jobs_b.end(), 0,
-                   [](int acc, const Operation &op) {
-                     return acc + op.duration;
-                   });
+        return dispatcher.job_work_remaining[a.job_id] <
+               dispatcher.job_work_remaining[b.job_id];
       }
 
   );

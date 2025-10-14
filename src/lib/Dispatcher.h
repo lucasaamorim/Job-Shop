@@ -16,12 +16,9 @@ struct Dispatcher {
   std::vector<int> job_next_available; //!< Next available time for each job
   std::vector<int>
       job_next_operation; //!< Next operation to be performed for each job
+  std::vector<int> job_work_remaining;
 
-  Dispatcher(JobShopInstance instance)
-      : instance(instance), schedule(instance),
-        machine_next_available(instance.n_machines),
-        job_next_available(instance.n_jobs),
-        job_next_operation(instance.n_jobs) {}
+  Dispatcher(const JobShopInstance &instance);
 
   std::vector<Operation> available_operations();
 

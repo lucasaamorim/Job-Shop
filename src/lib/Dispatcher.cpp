@@ -1,4 +1,19 @@
 #include <Dispatcher.h>
+#include <numeric>
+#include <algorithm>
+
+Dispatcher::Dispatcher(const JobShopInstance &instance)
+    : instance(instance), schedule(instance),
+      machine_next_available(instance.n_machines),
+      job_next_available(instance.n_jobs),
+      job_next_operation(instance.n_jobs),
+      job_work_remaining(instance.n_jobs) {
+          for (int i = 0; i < instance.n_jobs; ++i) {
+              job_work_remaining[i] = std::accumulate(
+                  instance.jobs[i].begin(), instance.jobs[i].end(), 0,
+                  [](int acc, const Operation &op) { return acc + op.duration; });
+            }
+      }
 
 std::vector<Operation> Dispatcher::available_operations() {
   std::vector<Operation> available_ops;
@@ -21,4 +36,5 @@ void Dispatcher::dispatch(Operation op) {
   machine_next_available[machine_id] = scheduled_op.end_time;
   job_next_available[op.job_id] = scheduled_op.end_time;
   job_next_operation[op.job_id]++;
+  job_work_remaining[op.job_id] -= op.duration;
 }

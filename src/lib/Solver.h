@@ -5,8 +5,8 @@
 #include <Schedule.h>
 
 struct Solver {
-    Solver(JobShopInstance instance, Rules::Rule rule)
-    : instance(std::move(instance)), rule(std::move(rule)) {}
+    Solver(const JobShopInstance &instance, const Rules::Rule &rule)
+    : instance(instance), rule(rule) {}
 
   Schedule solve();
 
