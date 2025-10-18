@@ -1,18 +1,13 @@
 #include <Schedule.h>
 
 #include <algorithm>
-#include <numeric>
 
 void Schedule::add(ScheduledOperation op) {
     schedule[op.machine_id].insert(op);
+    n_scheduled++;
 }
 
 bool Schedule::is_complete() {
-  int n_scheduled =
-      std::accumulate(schedule.begin(), schedule.end(), 0,
-                      [](int acc, const op_set &ops) {
-                        return acc + ops.size();
-                      });
   return n_scheduled == instance.n_operations;
 }
 

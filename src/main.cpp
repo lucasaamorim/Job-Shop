@@ -1,8 +1,8 @@
-#include <Solver.h>
 #include <JobShopInstance.h>
 #include <Operation.h>
 #include <Rules.h>
 #include <Schedule.h>
+#include <Solver.h>
 
 #include <chrono>
 #include <filesystem>
@@ -117,7 +117,7 @@ int main(int argc, char *argv[]) {
     instance_files.push_back(instance_path);
   }
 
-  std::sort(instance_files.begin(),instance_files.end());
+  std::sort(instance_files.begin(), instance_files.end());
 
   std::string output_filename = rule_name + ".csv";
   std::ofstream output_file(output_filename);
@@ -144,7 +144,8 @@ int main(int argc, char *argv[]) {
       auto start_time = std::chrono::high_resolution_clock::now();
 
       JobShopInstance instance = instance_from_file(file_path);
-      Solver solver(instance, rule_to_use);
+      // TODO: Arrumar essa passagem de template
+      Solver<rule_to_use> solver(instance);
       Schedule schedule = solver.solve();
       int makespan = schedule.makespan();
 

@@ -26,9 +26,12 @@ struct Schedule {
 
   std::vector<op_set> schedule;
 
+  size_t n_scheduled;
+
   Schedule(JobShopInstance instance)
       : instance(instance),
-        schedule(instance.n_machines, op_set()) {}
+        schedule(instance.n_machines, op_set()),
+       n_scheduled(0) {}
 
   void add(ScheduledOperation op);
 
