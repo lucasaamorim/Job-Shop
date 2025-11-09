@@ -3,6 +3,7 @@
 #include <Operation.h>
 #include <Rules.h>
 #include <Schedule.h>
+#include <TesteBranchAndBound.cpp>
 
 #include <chrono>
 #include <filesystem>
@@ -142,9 +143,11 @@ int main(int argc, char *argv[]) {
       auto start_time = std::chrono::high_resolution_clock::now();
 
       JobShopInstance instance = instance_from_file(file_path);
-      Solver solver(instance, rule_to_use);
-      Schedule schedule = solver.solve();
-      int makespan = schedule.makespan();
+      // Solver solver(instance, rule_to_use);
+      // Schedule schedule = solver.solve();
+      // int makespan = schedule.makespan();
+
+      int makespan = solve_branch_and_bound(instance);
 
       auto end_time = std::chrono::high_resolution_clock::now();
       auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
