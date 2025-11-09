@@ -2,12 +2,10 @@
 #include <JobShopInstance.h>
 #include <Solver.h>
 
-#include <iostream>
 #include <vector>
 #include <algorithm>
 #include <queue>
 #include <climits>
-#include <numeric>
 
 struct Node {
   std::vector<int> next_op_index;  // Próximo índice de operação a ser agendada para cada job
@@ -18,6 +16,10 @@ struct Node {
 
   // Agendamento parcial: Lista de operações já sequenciadas
   std::vector<Operation> partial_schedule;
+
+  auto operator<=>(const Node &other) const {
+    return lower_bound <=> other.lower_bound;
+  }
 };
 
 // Simplificado
@@ -38,7 +40,7 @@ int solve_branch_and_bound(JobShopInstance instance) {
   // Inicializando o Makespan com a heurística com regra de dispache SPT
   Rules::Rule rule = Rules::shortest_processing_time;
   Solver solver(instance, rule);
-  int upper_bound = solver.solve().makespan(); 
+  int upper_bound = solver.solve().makespan();
 
   std::priority_queue<Node, std::vector<Node>, std::greater<Node>> queue;
 
@@ -66,7 +68,7 @@ int solve_branch_and_bound(JobShopInstance instance) {
         break;
       }
     }
-    
+
     if(all_jobs_finished) {
       // Atualiza o Makespan ótimo
       upper_bound = std::min(upper_bound, current_node.current_makespan);
@@ -92,17 +94,17 @@ int solve_branch_and_bound(JobShopInstance instance) {
       int machine_id = op.machine_id;
       int job_id = op.job_id;
       int p_ij = op.duration;
-      
+
       // r_ij (Release Time/Ready Time): Tempo que a operação PODE começar.
       // É o máximo entre:
-      // a) Tempo de conclusão da operação anterior no Job 
-      // b) Tempo de liberação da máquina 
-      int r_ij = std::max(current_node.job_completion_time[job_id], 
+      // a) Tempo de conclusão da operação anterior no Job
+      // b) Tempo de liberação da máquina
+      int r_ij = std::max(current_node.job_completion_time[job_id],
                      current_node.machine_free_time[machine_id]);
-      
+
       // Cálculo da métrica: C_ij = r_ij + p_ij
       int c_ij = r_ij + p_ij;
-      
+
       // Encontrar o mínimo e identificar a máquina i*
       if (c_ij < min_completion_time) {
         min_completion_time = c_ij;
@@ -115,27 +117,27 @@ int solve_branch_and_bound(JobShopInstance instance) {
     for (const auto& op_to_schedule : eligible_ops) {
       // Ramificar apenas se a operação usar a máquina i* encontrada no Passo 2.
       if (op_to_schedule.machine_id == critical_machine_id) {
-          
+
         Node new_node = current_node;
 
         // Determinar o tempo de início (r_ij) para esta operação
-        int start_time = std::max(new_node.machine_free_time[op_to_schedule.machine_id], 
+        int start_time = std::max(new_node.machine_free_time[op_to_schedule.machine_id],
                              new_node.job_completion_time[op_to_schedule.job_id]);
-        
+
         // Agendamento (Completion Time = start_time + p_ij)
         int completion_time = start_time + op_to_schedule.duration;
-        
+
         // Atualizar o estado (criação do nó filho)
         new_node.machine_free_time[op_to_schedule.machine_id] = completion_time;
         new_node.job_completion_time[op_to_schedule.job_id] = completion_time;
         new_node.current_makespan = std::max(new_node.current_makespan, completion_time);
         new_node.next_op_index[op_to_schedule.job_id]++;
-        
+
         // Rastrear o agendamento
         // TODO: Acho que não precisa dessa parte
         Operation scheduled_op = op_to_schedule;
         new_node.partial_schedule.push_back(scheduled_op);
-        
+
         // Calcular novo Limite Inferior e Adicionar à Fila
         new_node.lower_bound = calculate_lower_bound(new_node, instance);
         if (new_node.lower_bound < upper_bound) {

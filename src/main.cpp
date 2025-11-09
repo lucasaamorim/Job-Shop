@@ -1,8 +1,8 @@
-#include <Solver.h>
 #include <JobShopInstance.h>
 #include <Operation.h>
 #include <Rules.h>
 #include <Schedule.h>
+#include <Solver.h>
 #include <TesteBranchAndBound.cpp>
 
 #include <chrono>
@@ -14,26 +14,30 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <set>
 
 std::filesystem::path instance_path;
 Rules::Rule rule_to_use;
 std::string rule_name;
-std::map<std::string, Rules::Rule> available_rules;
+std::string algorithm_name;
+
+const std::map<std::string, Rules::Rule> available_rules = {
+    {"shortest_processing_time", Rules::shortest_processing_time},
+    {"most_work_remaining", Rules::most_work_remaining},
+    {"first_come_first_served", Rules::first_come_first_served},
+    {"random_operation", Rules::random_operation},
+    {"longest_processing_time", Rules::longest_processing_time}
+};
+
+const std::set<std::string> available_algorithms = {
+    "priority_dispatch",
+    "branch_and_bound"
+};
 
 // Function declarations
-void initialize_rules();
 JobShopInstance instance_from_file(const std::filesystem::path &filepath);
 void print_usage(const char *prog_name);
 void read_args(int argc, char *argv[]);
-
-// Populates the map of available dispatching rules
-void initialize_rules() {
-  available_rules["shortest_processing_time"] = Rules::shortest_processing_time;
-  available_rules["most_work_remaining"] = Rules::most_work_remaining;
-  available_rules["first_come_first_served"] = Rules::first_come_first_served;
-  available_rules["random_operation"] = Rules::random_operation;
-  available_rules["longest_processing_time"] = Rules::longest_processing_time;
-}
 
 void print_usage(const char *prog_name) {
   std::cout << "Usage: " << prog_name << " [options] <PATH_TO_INSTANCE>"
@@ -45,10 +49,19 @@ void print_usage(const char *prog_name) {
          "is provided, it will be searched recursively for instance files."
       << std::endl;
   std::cout << "Options:" << std::endl;
-  std::cout << "\t-h, --help" << std::endl
-            << "\t\tDisplay this help message." << std::endl;
+  // ALGORITHM
+  std::cout
+      << "\t-a, --algorithm <ALGORITHM_NAME>" << std::endl
+      << "\t\tSpecify the algorithm to use. Defaults to 'priority_dispatch'."
+      << std::endl
+      << std::endl;
+  std::cout << "\t\tAvailable algorithms:" << std::endl;
+  for (const auto &name : available_algorithms) {
+    std::cout << "\t\t  - " << name << std::endl;
+  }
+  // RULE
   std::cout << "\t-r, --rule <RULE_NAME>" << std::endl
-            << "\t\tSpecify the dispatch rule to use. Defaults to "
+            << "\t\tSpecify the dispatch rule to use (only for priority_dispatch). Defaults to "
                "'shortest_processing_time'."
             << std::endl
             << std::endl;
@@ -56,12 +69,16 @@ void print_usage(const char *prog_name) {
   for (const auto &[name, rule] : available_rules) {
     std::cout << "\t\t  - " << name << std::endl;
   }
+  // HELP
+  std::cout << "\t-h, --help" << std::endl
+            << "\t\tDisplay this help message." << std::endl;
 }
 
 void read_args(int argc, char *argv[]) {
-  // Default rule
+  // Defaults
   rule_name = "shortest_processing_time";
-  rule_to_use = available_rules[rule_name];
+  rule_to_use = available_rules.at(rule_name);
+  algorithm_name = "priority_dispatch";
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -77,9 +94,23 @@ void read_args(int argc, char *argv[]) {
           print_usage(argv[0]);
           exit(1);
         }
-        rule_to_use = available_rules[rule_name];
+        rule_to_use = available_rules.at(rule_name);
       } else {
         std::cerr << "Error: --rule option requires an argument." << std::endl;
+        print_usage(argv[0]);
+        exit(1);
+      }
+    } else if (arg == "-a" || arg == "--algorithm") {
+       if (i + 1 < argc) {
+        algorithm_name = argv[++i];
+        if (available_algorithms.find(algorithm_name) == available_algorithms.end()) {
+          std::cerr << "Error: Unknown algorithm '" << algorithm_name << "'."
+                    << std::endl;
+          print_usage(argv[0]);
+          exit(1);
+        }
+      } else {
+        std::cerr << "Error: --algorithm option requires an argument." << std::endl;
         print_usage(argv[0]);
         exit(1);
       }
@@ -97,7 +128,6 @@ void read_args(int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
-  initialize_rules();
   read_args(argc, argv);
 
   std::vector<std::filesystem::path> instance_files;
@@ -118,7 +148,7 @@ int main(int argc, char *argv[]) {
     instance_files.push_back(instance_path);
   }
 
-  std::string output_filename = rule_name + ".csv";
+  std::string output_filename = algorithm_name + (algorithm_name == "priority_dispatch" ? "_" + rule_name : "") + ".csv";
   std::ofstream output_file(output_filename);
 
   if (!output_file.is_open()) {
@@ -129,8 +159,11 @@ int main(int argc, char *argv[]) {
 
   // Write CSV header
   output_file << "Instance,Runtime (ms),Makespan\n";
-  std::cout << "Using rule: " << rule_name << ". Output will be saved to "
-            << output_filename << std::endl;
+  std::cout << "Algorithm: " << algorithm_name << std::endl;
+  if (algorithm_name == "priority_dispatch") {
+      std::cout << "Rule: " << rule_name << std::endl;
+  }
+  std::cout << "Output will be saved to " << output_filename << std::endl;
   std::cout << std::string(60, '-') << std::endl;
   std::cout << std::left << std::setw(30) << "Instance" << std::setw(15)
             << "Runtime (ms)" << std::setw(15) << "Makespan" << std::endl;
@@ -140,14 +173,23 @@ int main(int argc, char *argv[]) {
     try {
       std::string instance_name = file_path.stem().string();
       std::cout << std::left << std::setw(30) << instance_name << std::flush;
-      auto start_time = std::chrono::high_resolution_clock::now();
 
       JobShopInstance instance = instance_from_file(file_path);
-      // Solver solver(instance, rule_to_use);
-      // Schedule schedule = solver.solve();
-      // int makespan = schedule.makespan();
+      int makespan = 0;
 
-      int makespan = solve_branch_and_bound(instance);
+      auto start_time = std::chrono::high_resolution_clock::now();
+
+      if (algorithm_name == "priority_dispatch") {
+          Solver solver(instance, rule_to_use);
+          Schedule schedule = solver.solve();
+          makespan = schedule.makespan();
+      } else if (algorithm_name == "branch_and_bound") {
+          makespan = solve_branch_and_bound(instance);
+          // TODO: Criar uma classe própria de Branch and Bound
+          //BranchAndBound bnb(instance);
+          //Schedule schedule = bnb.solve();
+          //makespan = schedule.makespan();
+      }
 
       auto end_time = std::chrono::high_resolution_clock::now();
       auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
