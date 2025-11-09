@@ -42,7 +42,7 @@ int solve_branch_and_bound(JobShopInstance instance) {
 
   std::priority_queue<Node, std::vector<Node>, std::greater<Node>> queue;
 
-  // Inicializar nó raiz
+  // 1. Inicializar nó raiz
   Node root;
   root.next_op_index.assign(instance.n_jobs, 0);
   root.machine_free_time.assign(instance.n_machines, 0);
@@ -83,7 +83,7 @@ int solve_branch_and_bound(JobShopInstance instance) {
       }
     }
 
-    // Estratégia de Branching: Foca na ramificação na máquina da operação elegível que,
+    // 2. Estratégia de Branching: Foca na ramificação na máquina da operação elegível que,
     // se agendada imediatamente, terminaria no tempo mais curto
     int min_completion_time = INT_MAX;
     int critical_machine_id = -1;
@@ -110,6 +110,8 @@ int solve_branch_and_bound(JobShopInstance instance) {
       }
     }
 
+    // 3. Ramificação Focada: Cria um nó filho APENAS para as operações elegíveis 
+    //    que utilizam a máquina crítica i*.
     for (const auto& op_to_schedule : eligible_ops) {
       // Ramificar apenas se a operação usar a máquina i* encontrada no Passo 2.
       if (op_to_schedule.machine_id == critical_machine_id) {
@@ -130,6 +132,7 @@ int solve_branch_and_bound(JobShopInstance instance) {
         new_node.next_op_index[op_to_schedule.job_id]++;
         
         // Rastrear o agendamento
+        // TODO: Acho que não precisa dessa parte
         Operation scheduled_op = op_to_schedule;
         new_node.partial_schedule.push_back(scheduled_op);
         
