@@ -5,6 +5,7 @@
 #include <Solver.h>
 #include <TesteBranchAndBound.cpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -147,6 +148,8 @@ int main(int argc, char *argv[]) {
   } else {
     instance_files.push_back(instance_path);
   }
+
+  std::sort(instance_files.begin(),instance_files.end());
 
   std::string output_filename = algorithm_name + (algorithm_name == "priority_dispatch" ? "_" + rule_name : "") + ".csv";
   std::ofstream output_file(output_filename);
