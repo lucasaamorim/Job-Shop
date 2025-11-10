@@ -16,25 +16,178 @@ struct Node {
 
   // Agendamento parcial: Lista de operações já sequenciadas
   std::vector<Operation> partial_schedule;
+};
 
-  auto operator<=>(const Node &other) const {
-    return lower_bound <=> other.lower_bound;
+struct OperationDataToSingloMachine {
+  int job_id;
+  int duration;     // p_j (Processing Time)
+  int release_time; // r_j (Release Time / Ready Time)
+  int due_date;     // d_j (Due Date - Ignorado no cálculo C_max, mas mantido)
+};
+
+// Comparador para operações NÃO liberadas: Ordena por r_j (menor r_j no topo)
+struct ReleaseTimeComparator {
+  bool operator()(const OperationDataToSingloMachine& a, const OperationDataToSingloMachine& b) const {
+      return a.release_time > b.release_time; 
   }
 };
 
-// Simplificado
-int calculate_lower_bound(const Node& node, JobShopInstance instance) {
-  int lb = node.current_makespan;
-
-  for (int j = 0; j < instance.n_jobs; ++j) {
-      int remaining_time = 0;
-      for (int k = node.next_op_index[j]; k < instance.jobs[j].size(); ++k) {
-          remaining_time += instance.jobs[j][k].duration;
+// Comparador para operações JÁ liberadas: Ordena por p_j (menor duração/SPT no topo)
+// Esta é a regra ótima para 1 | r_j | C_max
+struct ProcessingTimeComparator {
+  bool operator()(const OperationDataToSingloMachine& a, const OperationDataToSingloMachine& b) const {
+      if (a.duration != b.duration) {
+          return a.duration > b.duration; // SPT: Menor p_j no topo
       }
-      lb = std::max(lb, node.job_completion_time[j] + remaining_time);
+      return a.release_time > b.release_time; // Desempate: Menor r_j
   }
-  return lb;
+};
+
+/**
+ * Computa o tempo de início mais cedo possível (r_ij) para uma operação.
+ * Equivalente ao comprimento do caminho mais longo da origem U para o nó da operação (j, i).
+ *
+ * @param node O estado parcial atual (vértices já alcançados/sequenciados).
+ * @param op A operação (i,j) para a qual o r_ij está sendo calculado.
+ * @return O Tempo de início (r_ij) da operação.
+ */
+int calculate_longest_path_U_to_O(const Node& node, const Operation& op) {
+  // Restrição de Precedência Tecnológica (Arcos Conjuntivos)
+  // A operação op só pode começar DEPOIS que a sua predecessora no mesmo Job terminar.
+  int predecessor_job_completion_time = 0;
+  if (op.position_in_job > 0) {
+    // Usa o tempo de conclusão registrado do Job.
+    // Se a Op (j, i) não é a primeira do Job, este valor é > 0.
+    predecessor_job_completion_time = node.job_completion_time[op.job_id];
+  }
+  // Restrição de Recurso (Arcos Disjuntivos JÁ SELECIONADOS)
+  // A operação op só pode começar DEPOIS que a Máquina i estiver livre.
+  int machine_free_time = node.machine_free_time[op.machine_id];
+
+  // O Caminho Mais Longo (max)
+  // No grafo, é o máximo dos comprimentos dos caminhos que chegam em O_ij.
+  int r_ij = std::max(predecessor_job_completion_time, machine_free_time);
+
+  return r_ij;
 }
+
+/**
+ * SOLUÇÃO ÓTIMA para 1 | r_j | C_max (Garante o Lower Bound Válido)
+ *
+ * @param machine_ops Vetor de operações com r_j e p_j.
+ * @return O Makespan (tempo de conclusão total) ótimo para o problema relaxado.
+ */
+int solve_single_machine_makespan_for_Lmax(const std::vector<OperationDataToSingloMachine>& machine_ops) {
+  if (machine_ops.empty()) return 0;
+  
+  // 1. Fila de não-liberados (ordenada pelo r_j mais cedo)
+  std::priority_queue<OperationDataToSingloMachine, std::vector<OperationDataToSingloMachine>, ReleaseTimeComparator> not_released_ops;
+  for (const auto& op : machine_ops) {
+      not_released_ops.push(op);
+  }
+
+  // 2. Fila de prontos (ordenada pelo p_j mais curto - Regra SPT)
+  std::priority_queue<OperationDataToSingloMachine, std::vector<OperationDataToSingloMachine>, ProcessingTimeComparator> ready_ops;
+
+  int current_time = 0;
+    int max_completion_time = 0; // O Makespan (C_max)
+
+    while (!not_released_ops.empty() || !ready_ops.empty()) {
+      // --- Passo A: Liberar Operações ---
+      // Move todas as operações prontas (r_j <= current_time) para o conjunto READY (SPT)
+      while (!not_released_ops.empty() && not_released_ops.top().release_time <= current_time) {
+        ready_ops.push(not_released_ops.top());
+        not_released_ops.pop();
+      }
+
+      // --- Passo B: Seleção da Operação ---
+      if (!ready_ops.empty()) {
+        // Regra Ótima: Escolhe a operação liberada com o menor Tempo de Processamento (SPT)
+        OperationDataToSingloMachine selected_op = ready_ops.top();
+        ready_ops.pop();
+        // Tempo de início da operação:
+        // max(Tempo atual da Máquina, Tempo de Liberação da Operação)
+        int start_time = std::max(current_time, selected_op.release_time);
+        
+        // Tempo de conclusão
+        int completion_time = start_time + selected_op.duration;
+        // Atualiza o tempo atual da máquina
+        current_time = completion_time;
+        max_completion_time = std::max(max_completion_time, completion_time);
+      } else if (!not_released_ops.empty()) {
+          // Se não há operações prontas, avança o tempo para a próxima liberação
+          current_time = not_released_ops.top().release_time;
+      }
+    }
+
+    // Retorna o Makespan Ótimo para 1 | r_j | C_max
+    return max_completion_time;
+  }
+
+int calculate_lower_bound(const Node& node, const JobShopInstance& instance) {
+  int max_lb = node.current_makespan; 
+  
+  // Estrutura para agrupar as operações elegíveis por máquina
+  std::map<int, std::vector<OperationDataToSingloMachine>> ops_by_machine;
+
+  // --- Parte 1: Limite Inferior Baseado em Job (Job-Based LB) ---
+  for (int j = 0; j < instance.n_jobs; ++j) {
+      // Tempo restante do Job (Caminho Mais Longo O_ij -> V, onde O_ij é a próxima op)
+      int remaining_time_path_to_V = 0;
+      
+      for (int k = node.next_op_index[j]; k < instance.jobs[j].size(); ++k) {
+          const Operation& op = instance.jobs[j][k];
+          remaining_time_path_to_V += op.duration;
+      }
+      
+      // LB = max(Makespan Atual, C_job = Conclusão Passada + Tempo Restante)
+      max_lb = std::max(max_lb, node.job_completion_time[j] + remaining_time_path_to_V);
+
+      // Prepara os dados para o Limite Inferior Baseado em Máquina
+      if (node.next_op_index[j] < instance.jobs[j].size()) {
+          const Operation& op = instance.jobs[j][node.next_op_index[j]];
+          
+          // r_ij é o Caminho Mais Longo U -> O_ij
+          int r_ij = calculate_longest_path_U_to_O(node, op);
+          
+          // p_ij é a duração
+          int p_ij = op.duration;
+
+          // Coleta a operação para a máquina
+          ops_by_machine[op.machine_id].push_back({op.job_id, p_ij, r_ij, 0});
+      }
+  }
+
+  // --- Parte 2: Limite Inferior Baseado em Máquina (Machine-Based LB) ---
+  
+  for (int m = 0; m < instance.n_machines; ++m) {
+      if (ops_by_machine.count(m)) {
+          const auto& remaining_ops = ops_by_machine.at(m);
+          
+          // Resolve o problema ótimo 1 | r_j | C_max (SPT-Gulosa)
+          int lb_machine = solve_single_machine_makespan_for_Lmax(remaining_ops);
+          
+          // Atualiza o LB global do nó
+          max_lb = std::max(max_lb, lb_machine);
+      }
+  }
+
+  return max_lb;
+}
+
+// Simplificado
+// int calculate_lower_bound(const Node& node, JobShopInstance instance) {
+//   int lb = node.current_makespan;
+
+//   for (int j = 0; j < instance.n_jobs; ++j) {
+//       int remaining_time = 0;
+//       for (int k = node.next_op_index[j]; k < instance.jobs[j].size(); ++k) {
+//           remaining_time += instance.jobs[j][k].duration;
+//       }
+//       lb = std::max(lb, node.job_completion_time[j] + remaining_time);
+//   }
+//   return lb;
+// }
 
 int solve_branch_and_bound(JobShopInstance instance) {
   // Inicializando o Makespan com a heurística com regra de dispache SPT
