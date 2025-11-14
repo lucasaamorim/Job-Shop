@@ -1,9 +1,9 @@
+#include <ISolver.h>
 #include <JobShopInstance.h>
-#include <Operation.h>
 #include <Rules.h>
 #include <Schedule.h>
-#include <Solver.h>
-#include <TesteBranchAndBound.cpp>
+#include <solvers/BBSolver.h>
+#include <solvers/DispatchSolver.h>
 
 #include <chrono>
 #include <filesystem>
@@ -11,10 +11,11 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <set>
 
 std::filesystem::path instance_path;
 Rules::Rule rule_to_use;
@@ -26,13 +27,10 @@ const std::map<std::string, Rules::Rule> available_rules = {
     {"most_work_remaining", Rules::most_work_remaining},
     {"first_come_first_served", Rules::first_come_first_served},
     {"random_operation", Rules::random_operation},
-    {"longest_processing_time", Rules::longest_processing_time}
-};
+    {"longest_processing_time", Rules::longest_processing_time}};
 
-const std::set<std::string> available_algorithms = {
-    "priority_dispatch",
-    "branch_and_bound"
-};
+const std::set<std::string> available_algorithms = {"priority_dispatch",
+                                                    "branch_and_bound"};
 
 // Function declarations
 JobShopInstance instance_from_file(const std::filesystem::path &filepath);
@@ -61,7 +59,8 @@ void print_usage(const char *prog_name) {
   }
   // RULE
   std::cout << "\t-r, --rule <RULE_NAME>" << std::endl
-            << "\t\tSpecify the dispatch rule to use (only for priority_dispatch). Defaults to "
+            << "\t\tSpecify the dispatch rule to use (only for "
+               "priority_dispatch). Defaults to "
                "'shortest_processing_time'."
             << std::endl
             << std::endl;
@@ -101,16 +100,18 @@ void read_args(int argc, char *argv[]) {
         exit(1);
       }
     } else if (arg == "-a" || arg == "--algorithm") {
-       if (i + 1 < argc) {
+      if (i + 1 < argc) {
         algorithm_name = argv[++i];
-        if (available_algorithms.find(algorithm_name) == available_algorithms.end()) {
+        if (available_algorithms.find(algorithm_name) ==
+            available_algorithms.end()) {
           std::cerr << "Error: Unknown algorithm '" << algorithm_name << "'."
                     << std::endl;
           print_usage(argv[0]);
           exit(1);
         }
       } else {
-        std::cerr << "Error: --algorithm option requires an argument." << std::endl;
+        std::cerr << "Error: --algorithm option requires an argument."
+                  << std::endl;
         print_usage(argv[0]);
         exit(1);
       }
@@ -148,7 +149,9 @@ int main(int argc, char *argv[]) {
     instance_files.push_back(instance_path);
   }
 
-  std::string output_filename = algorithm_name + (algorithm_name == "priority_dispatch" ? "_" + rule_name : "") + ".csv";
+  std::string output_filename =
+      algorithm_name +
+      (algorithm_name == "priority_dispatch" ? "_" + rule_name : "") + ".csv";
   std::ofstream output_file(output_filename);
 
   if (!output_file.is_open()) {
@@ -161,7 +164,7 @@ int main(int argc, char *argv[]) {
   output_file << "Instance,Runtime (ms),Makespan\n";
   std::cout << "Algorithm: " << algorithm_name << std::endl;
   if (algorithm_name == "priority_dispatch") {
-      std::cout << "Rule: " << rule_name << std::endl;
+    std::cout << "Rule: " << rule_name << std::endl;
   }
   std::cout << "Output will be saved to " << output_filename << std::endl;
   std::cout << std::string(60, '-') << std::endl;
@@ -179,16 +182,22 @@ int main(int argc, char *argv[]) {
 
       auto start_time = std::chrono::high_resolution_clock::now();
 
+      std::unique_ptr<ISolver> solver;
+
       if (algorithm_name == "priority_dispatch") {
-          Solver solver(instance, rule_to_use);
-          Schedule schedule = solver.solve();
-          makespan = schedule.makespan();
+        // Cria um solver de despacho
+        solver = std::make_unique<DispatchSolver>(instance, rule_to_use);
       } else if (algorithm_name == "branch_and_bound") {
-          makespan = solve_branch_and_bound(instance);
-          // TODO: Criar uma classe própria de Branch and Bound
-          //BranchAndBound bnb(instance);
-          //Schedule schedule = bnb.solve();
-          //makespan = schedule.makespan();
+        // Cria um solver B&B
+        solver = std::make_unique<BBSolver>(instance);
+      }
+
+      // Se o solver foi instanciado, resolve
+      if (solver) {
+        Schedule schedule = solver->solve();
+        makespan = schedule.makespan();
+      } else {
+        throw std::runtime_error("Algoritmo não reconhecido.");
       }
 
       auto end_time = std::chrono::high_resolution_clock::now();
@@ -237,10 +246,11 @@ JobShopInstance instance_from_file(const std::filesystem::path &filepath) {
         throw std::runtime_error("Error reading operation data in " +
                                  filepath.string());
       }
-      jobs[job_id][op_idx] = {job_id, op_idx, machine_id, duration,
-                              job_id * n_machines + op_idx};
+      jobs[job_id][op_idx] = {
+          job_id, machine_id, job_id * n_machines + op_idx, op_idx, duration,
+      };
     }
   }
 
-  return JobShopInstance(jobs, n_machines);
+  return JobShopInstance(jobs, n_jobs, n_machines, n_jobs * n_machines);
 }

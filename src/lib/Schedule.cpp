@@ -16,14 +16,25 @@ bool Schedule::is_complete() {
   return n_scheduled == instance.n_operations;
 }
 
-int Schedule::makespan() {
-  if (instance.n_operations == 0)
-    return 0;
-  return max_element(schedule.begin(), schedule.end(),
-                     [](const op_set &a,
-                        const op_set &b) {
-                       return a.rbegin()->end_time < b.rbegin()->end_time;
-                     })
-      ->rbegin()
-      ->end_time;
+int Schedule::makespan() const{
+  // O 'makespan' geral começa em 0
+  int max_makespan = 0;
+
+  // Itera por cada máquina (cada op_set no vetor)
+  for (const auto &machine_schedule : schedule) {
+    // Verifica se o set da máquina NÃO está vazio
+    if (!machine_schedule.empty()) {
+      // Pega o end_time da última operação dessa máquina
+      int machine_end_time = machine_schedule.rbegin()->end_time;
+
+      // Atualiza o makespan geral se o desta máquina for maior
+      if (machine_end_time > max_makespan) {
+        max_makespan = machine_end_time;
+      }
+    }
+    // Se machine_schedule estiver vazio, seu makespan é 0,
+    // então ele é ignorado (corretamente) pelo 'if'.
+  }
+
+  return max_makespan;
 }
