@@ -18,75 +18,128 @@
 #include <string>
 #include <vector>
 
-std::filesystem::path instance_path;
-Rules::Rule rule_to_use;
-std::string rule_name;
-std::string algorithm_name;
+// --- Configuration ---
 
-double timeout_seconds = std::numeric_limits<double>::infinity();
+struct AppConfig {
+  std::filesystem::path instance_path;
+  std::string algorithm_name = "priority_dispatch";
+  std::string rule_name = "shortest_processing_time";
+  double timeout_seconds = std::numeric_limits<double>::infinity();
 
-const std::map<std::string, Rules::Rule> available_rules = {
+  static const std::map<std::string, Rules::Rule> AVAILABLE_RULES;
+  static const std::set<std::string> AVAILABLE_ALGORITHMS;
+};
+
+const std::map<std::string, Rules::Rule> AppConfig::AVAILABLE_RULES = {
     {"shortest_processing_time", Rules::shortest_processing_time},
     {"most_work_remaining", Rules::most_work_remaining},
     {"first_come_first_served", Rules::first_come_first_served},
     {"random_operation", Rules::random_operation},
     {"longest_processing_time", Rules::longest_processing_time}};
 
-const std::set<std::string> available_algorithms = {"priority_dispatch",
-                                                    "branch_and_bound"};
+const std::set<std::string> AppConfig::AVAILABLE_ALGORITHMS = {
+    "priority_dispatch", "branch_and_bound"};
 
-// Function declarations
-JobShopInstance instance_from_file(const std::filesystem::path &filepath);
+// --- Function Declarations ---
+
 void print_usage(const char *prog_name);
-void read_args(int argc, char *argv[]);
+AppConfig parse_args(int argc, char *argv[]);
+JobShopInstance instance_from_file(const std::filesystem::path &filepath);
+std::vector<std::filesystem::path>
+discover_files(const std::filesystem::path &path);
+std::unique_ptr<ISolver> create_solver(const AppConfig &config,
+                                       const JobShopInstance &instance);
+std::ofstream create_output_file(const AppConfig &config);
+void print_stdout_header(const AppConfig &config);
+std::chrono::steady_clock::time_point
+get_deadline(const std::chrono::steady_clock::time_point &start,
+             double timeout_sec);
 
-void print_usage(const char *prog_name) {
-  std::cout << "Usage: " << prog_name << " [options] <PATH_TO_INSTANCE>"
-            << std::endl;
-  std::cout << "Arguments:" << std::endl;
-  std::cout << "\t<PATH_TO_INSTANCE>" << std::endl;
-  std::cout
-      << "\t\tPath to an instance file or a directory. If a directory "
-         "is provided, it will be searched recursively for instance files."
-      << std::endl;
-  std::cout << "Options:" << std::endl;
-  // ALGORITHM
-  std::cout
-      << "\t-a, --algorithm <ALGORITHM_NAME>" << std::endl
-      << "\t\tSpecify the algorithm to use. Defaults to 'priority_dispatch'."
-      << std::endl
-      << std::endl;
-  std::cout << "\t\tAvailable algorithms:" << std::endl;
-  for (const auto &name : available_algorithms) {
-    std::cout << "\t\t  - " << name << std::endl;
+// --- Main Execution ---
+
+int main(int argc, char *argv[]) {
+  try {
+    AppConfig config = parse_args(argc, argv);
+
+    std::vector<std::filesystem::path> instance_files =
+        discover_files(config.instance_path);
+    std::ofstream output_file = create_output_file(config);
+    output_file << "Instance,Runtime (ms),Makespan,TimedOut\n";
+
+    print_stdout_header(config);
+
+    for (const auto &file_path : instance_files) {
+      try {
+        std::string instance_name = file_path.stem().string();
+        std::cout << std::left << std::setw(30) << instance_name << std::flush;
+
+        JobShopInstance instance = instance_from_file(file_path);
+        auto solver = create_solver(config, instance);
+
+        auto start_time = std::chrono::steady_clock::now();
+        auto deadline = get_deadline(start_time, config.timeout_seconds);
+
+        Schedule schedule = solver->solve(deadline);
+        int makespan = schedule.makespan();
+
+        auto end_time = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            end_time - start_time)
+                            .count();
+
+        bool timed_out = (end_time >= deadline);
+        std::string timed_out_str = timed_out ? "Yes" : "No";
+
+        std::cout << std::setw(15) << duration << std::setw(15) << makespan
+                  << std::setw(10) << timed_out_str << std::endl;
+        output_file << instance_name << "," << duration << "," << makespan
+                    << "," << timed_out_str << "\n";
+
+      } catch (const std::exception &e) {
+        std::cerr << "\nError processing file " << file_path.string() << ": "
+                  << e.what() << std::endl;
+      }
+    }
+
+    std::cout << std::string(70, '-') << std::endl;
+    std::cout << "Processing complete. Results saved to "
+              << config.algorithm_name
+              << (config.algorithm_name == "priority_dispatch"
+                      ? "_" + config.rule_name
+                      : "")
+              << ".csv" << std::endl;
+
+  } catch (const std::exception &e) {
+    std::cerr << "Error: " << e.what() << std::endl;
+    return 1;
   }
-  // RULE
-  std::cout << "\t-r, --rule <RULE_NAME>" << std::endl
-            << "\t\tSpecify the dispatch rule to use (only for "
-               "priority_dispatch). Defaults to "
-               "'shortest_processing_time'."
-            << std::endl
-            << std::endl;
-  std::cout << "\t\tAvailable rules:" << std::endl;
-  for (const auto &[name, rule] : available_rules) {
-    std::cout << "\t\t  - " << name << std::endl;
-  }
-  // TIMEOUT
-  std::cout << "\t-t, --timeout <SECONDS>" << std::endl
-            << "\t\tSpecify a timeout in seconds. Defaults to no limit."
-            << std::endl
-            << std::endl;
-  // HELP
-  std::cout << "\t-h, --help" << std::endl
-            << "\t\tDisplay this help message." << std::endl;
+  return 0;
 }
 
-void read_args(int argc, char *argv[]) {
-  // Defaults
-  rule_name = "shortest_processing_time";
-  rule_to_use = available_rules.at(rule_name);
-  algorithm_name = "priority_dispatch";
-  timeout_seconds = std::numeric_limits<double>::infinity();
+// --- Helper Implementations ---
+
+/**
+ * @brief Creates the correct solver object based on the app configuration.
+ */
+std::unique_ptr<ISolver> create_solver(const AppConfig &config,
+                                       const JobShopInstance &instance) {
+  if (config.algorithm_name == "priority_dispatch") {
+    Rules::Rule rule_to_use = AppConfig::AVAILABLE_RULES.at(config.rule_name);
+    return std::make_unique<DispatchSolver>(instance, rule_to_use);
+  }
+  if (config.algorithm_name == "branch_and_bound") {
+    return std::make_unique<BBSolver>(instance);
+  }
+  // This should be unreachable due to parse_args checks
+  throw std::runtime_error("Unknown algorithm: " + config.algorithm_name);
+}
+
+/**
+ * @brief Parses command-line arguments and returns an AppConfig struct.
+ * Throws std::runtime_error on invalid arguments.
+ */
+AppConfig parse_args(int argc, char *argv[]) {
+  AppConfig config;
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -94,181 +147,158 @@ void read_args(int argc, char *argv[]) {
       print_usage(argv[0]);
       exit(0);
     } else if (arg == "-r" || arg == "--rule") {
-      if (i + 1 < argc) {
-        rule_name = argv[++i];
-        if (available_rules.find(rule_name) == available_rules.end()) {
-          std::cerr << "Error: Unknown rule '" << rule_name << "'."
-                    << std::endl;
-          print_usage(argv[0]);
-          exit(1);
-        }
-        rule_to_use = available_rules.at(rule_name);
-      } else {
-        std::cerr << "Error: --rule option requires an argument." << std::endl;
-        print_usage(argv[0]);
-        exit(1);
+      if (++i >= argc)
+        throw std::runtime_error("--rule option requires an argument.");
+      config.rule_name = argv[i];
+      if (AppConfig::AVAILABLE_RULES.find(config.rule_name) ==
+          AppConfig::AVAILABLE_RULES.end()) {
+        throw std::runtime_error("Unknown rule: " + config.rule_name);
       }
     } else if (arg == "-a" || arg == "--algorithm") {
-      if (i + 1 < argc) {
-        algorithm_name = argv[++i];
-        if (available_algorithms.find(algorithm_name) ==
-            available_algorithms.end()) {
-          std::cerr << "Error: Unknown algorithm '" << algorithm_name << "'."
-                    << std::endl;
-          print_usage(argv[0]);
-          exit(1);
-        }
-      } else {
-        std::cerr << "Error: --algorithm option requires an argument."
-                  << std::endl;
-        print_usage(argv[0]);
-        exit(1);
+      if (++i >= argc)
+        throw std::runtime_error("--algorithm option requires an argument.");
+      config.algorithm_name = argv[i];
+      if (AppConfig::AVAILABLE_ALGORITHMS.find(config.algorithm_name) ==
+          AppConfig::AVAILABLE_ALGORITHMS.end()) {
+        throw std::runtime_error("Unknown algorithm: " + config.algorithm_name);
       }
     } else if (arg == "-t" || arg == "--timeout") {
-      if (i + 1 < argc) {
-        try {
-          timeout_seconds = std::stod(argv[++i]);
-          if (timeout_seconds <= 0) {
-            std::cerr << "Error: Timeout must be a positive number."
-                      << std::endl;
-            exit(1);
-          }
-        } catch (const std::exception &e) {
-          std::cerr << "Error: Invalid timeout value: " << e.what()
-                    << std::endl;
-          exit(1);
+      if (++i >= argc)
+        throw std::runtime_error("--timeout option requires an argument.");
+      try {
+        config.timeout_seconds = std::stod(argv[i]);
+        if (config.timeout_seconds <= 0) {
+          throw std::runtime_error("Timeout must be a positive number.");
         }
-      } else {
-        std::cerr << "Error: --timeout option requires an argument."
-                  << std::endl;
-        print_usage(argv[0]);
-        exit(1);
+      } catch (const std::exception &e) {
+        throw std::runtime_error(std::string("Invalid timeout value: ") +
+                                 e.what());
       }
+    } else if (config.instance_path.empty()) {
+      config.instance_path = arg;
     } else {
-      instance_path = arg;
+      throw std::runtime_error("Unknown or duplicate argument: " + arg);
     }
   }
 
-  if (instance_path.empty()) {
-    std::cerr << "Error: Missing path to instance file or directory."
-              << std::endl;
-    print_usage(argv[0]);
-    exit(1);
+  if (config.instance_path.empty()) {
+    throw std::runtime_error("Missing path to instance file or directory.");
   }
+
+  return config;
 }
 
-int main(int argc, char *argv[]) {
-  read_args(argc, argv);
-
-  std::vector<std::filesystem::path> instance_files;
-
-  if (!std::filesystem::exists(instance_path)) {
-    std::cerr << "Error: Path does not exist: " << instance_path << std::endl;
-    return 1;
+/**
+ * @brief Finds all regular files at a path, searching recursively if it's a
+ * directory.
+ */
+std::vector<std::filesystem::path>
+discover_files(const std::filesystem::path &path) {
+  std::vector<std::filesystem::path> files;
+  if (!std::filesystem::exists(path)) {
+    throw std::runtime_error("Path does not exist: " + path.string());
   }
 
-  if (std::filesystem::is_directory(instance_path)) {
+  if (std::filesystem::is_directory(path)) {
     for (const auto &entry :
-         std::filesystem::recursive_directory_iterator(instance_path)) {
+         std::filesystem::recursive_directory_iterator(path)) {
       if (entry.is_regular_file()) {
-        instance_files.push_back(entry.path());
+        files.push_back(entry.path());
       }
     }
-  } else {
-    instance_files.push_back(instance_path);
+  } else if (std::filesystem::is_regular_file(path)) {
+    files.push_back(path);
   }
+  return files;
+}
 
+/**
+ * @brief Creates and opens the CSV output file based on the config.
+ */
+std::ofstream create_output_file(const AppConfig &config) {
   std::string output_filename =
-      algorithm_name +
-      (algorithm_name == "priority_dispatch" ? "_" + rule_name : "") + ".csv";
+      config.algorithm_name +
+      (config.algorithm_name == "priority_dispatch" ? "_" + config.rule_name
+                                                    : "") +
+      ".csv";
   std::ofstream output_file(output_filename);
-
   if (!output_file.is_open()) {
-    std::cerr << "Error: Could not open output file " << output_filename
-              << std::endl;
-    return 1;
+    throw std::runtime_error("Could not open output file " + output_filename);
   }
+  return output_file;
+}
 
-  // Write CSV header
-  output_file << "Instance,Runtime (ms),Makespan,TimedOut\n";
-  std::cout << "Algorithm: " << algorithm_name << std::endl;
-  if (algorithm_name == "priority_dispatch") {
-    std::cout << "Rule: " << rule_name << std::endl;
+/**
+ * @brief Prints the run configuration to standard output.
+ */
+void print_stdout_header(const AppConfig &config) {
+  std::cout << "Algorithm: " << config.algorithm_name << std::endl;
+  if (config.algorithm_name == "priority_dispatch") {
+    std::cout << "Rule: " << config.rule_name << std::endl;
   }
-  if (timeout_seconds != std::numeric_limits<double>::infinity()) {
-    std::cout << "Timeout: " << timeout_seconds << "s" << std::endl;
+  if (config.timeout_seconds != std::numeric_limits<double>::infinity()) {
+    std::cout << "Timeout: " << config.timeout_seconds << "s" << std::endl;
   }
   std::cout << std::string(70, '-') << std::endl;
   std::cout << std::left << std::setw(30) << "Instance" << std::setw(15)
             << "Runtime (ms)" << std::setw(15) << "Makespan" << std::setw(10)
             << "TimedOut" << std::endl;
   std::cout << std::string(70, '-') << std::endl;
-
-  for (const auto &file_path : instance_files) {
-    try {
-      std::string instance_name = file_path.stem().string();
-      std::cout << std::left << std::setw(30) << instance_name << std::flush;
-
-      JobShopInstance instance = instance_from_file(file_path);
-      int makespan = 0;
-
-      auto start_time = std::chrono::steady_clock::now();
-
-      std::chrono::steady_clock::time_point deadline; // Declare deadline
-
-      if (timeout_seconds == std::numeric_limits<double>::infinity()) {
-        deadline = std::chrono::steady_clock::time_point::max();
-      } else {
-        auto duration_to_add =
-            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                std::chrono::duration<double>(timeout_seconds));
-        deadline = start_time + duration_to_add;
-      }
-      std::unique_ptr<ISolver> solver;
-
-      if (algorithm_name == "priority_dispatch") {
-        // Cria um solver de despacho
-        solver = std::make_unique<DispatchSolver>(instance, rule_to_use);
-      } else if (algorithm_name == "branch_and_bound") {
-        // Cria um solver B&B
-        solver = std::make_unique<BBSolver>(instance);
-      }
-
-      // Se o solver foi instanciado, resolve
-      if (solver) {
-        Schedule schedule = solver->solve(deadline);
-        makespan = schedule.makespan();
-      } else {
-        throw std::runtime_error("Algoritmo não reconhecido.");
-      }
-
-      auto end_time = std::chrono::steady_clock::now();
-      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                          end_time - start_time)
-                          .count();
-
-      // --- Timeout Reporting ---
-      bool timed_out = (end_time >= deadline);
-      std::string timed_out_str = timed_out ? "Yes" : "No";
-
-      std::cout << std::setw(15) << duration << std::setw(15) << makespan
-                << std::setw(10) << timed_out_str << std::endl;
-      output_file << instance_name << "," << duration << "," << makespan << ","
-                  << timed_out_str << "\n";
-
-    } catch (const std::exception &e) {
-      std::cerr << "Error processing file " << file_path.string() << ": "
-                << e.what() << std::endl;
-    }
-  }
-  std::cout << std::string(70, '-') << std::endl;
-  std::cout << "Processing complete. Results saved to " << output_filename
-            << std::endl;
-  output_file.close();
-
-  return 0;
 }
 
+/**
+ * @brief Calculates the absolute deadline time point.
+ */
+std::chrono::steady_clock::time_point
+get_deadline(const std::chrono::steady_clock::time_point &start,
+             double timeout_sec) {
+  if (timeout_sec == std::numeric_limits<double>::infinity()) {
+    return std::chrono::steady_clock::time_point::max();
+  }
+  auto duration =
+      std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+          std::chrono::duration<double>(timeout_sec));
+  return start + duration;
+}
+
+/**
+ * @brief Prints the command-line usage instructions.
+ */
+void print_usage(const char *prog_name) {
+  std::cout << "Usage: " << prog_name << " [options] <PATH_TO_INSTANCE>"
+            << std::endl;
+  std::cout << "Arguments:" << std::endl;
+  std::cout << "\t<PATH_TO_INSTANCE>" << std::endl;
+  std::cout << "\t\tPath to an instance file or a directory (searched "
+               "recursively)."
+            << std::endl;
+  std::cout << "Options:" << std::endl;
+  // ALGORITHM
+  std::cout << "\t-a, --algorithm <ALGORITHM_NAME> (Default: "
+               "priority_dispatch)"
+            << std::endl;
+  std::cout << "\t\tAvailable algorithms:" << std::endl;
+  for (const auto &name : AppConfig::AVAILABLE_ALGORITHMS) {
+    std::cout << "\t\t  - " << name << std::endl;
+  }
+  // RULE
+  std::cout << "\t-r, --rule <RULE_NAME> (Default: shortest_processing_time)"
+            << std::endl;
+  std::cout << "\t\t(Only for priority_dispatch)" << std::endl;
+  std::cout << "\t\tAvailable rules:" << std::endl;
+  for (const auto &[name, rule] : AppConfig::AVAILABLE_RULES) {
+    std::cout << "\t\t  - " << name << std::endl;
+  }
+  // TIMEOUT
+  std::cout << "\t-t, --timeout <SECONDS> (Default: no limit)" << std::endl;
+  // HELP
+  std::cout << "\t-h, --help" << std::endl
+            << "\t\tDisplay this help message." << std::endl;
+}
+
+/**
+ * @brief Parses an instance file and returns a JobShopInstance object.
+ */
 JobShopInstance instance_from_file(const std::filesystem::path &filepath) {
   std::ifstream file(filepath);
   if (!file.is_open()) {
