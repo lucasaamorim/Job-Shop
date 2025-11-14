@@ -1,13 +1,15 @@
-#include "JobShopInstance.h"
-#include <Rules.h> // For initial heuristic
+#include <JobShopInstance.h>
+#include <Rules.h>
+#include <solvers/BBSolver.h>
+#include <solvers/DispatchSolver.h>
+
 #include <algorithm>
-#include <climits> // For INT_MAX
+#include <chrono>
+#include <climits>
 #include <map>
 #include <memory>
 #include <optional>
-#include <queue> // For std::priority_queue
-#include <solvers/BBSolver.h>
-#include <solvers/DispatchSolver.h> // For initial heuristic
+#include <queue>
 #include <vector>
 
 // Anonymous namespace for internal B&B implementation details
@@ -197,16 +199,18 @@ BBSolver::BBSolver(const JobShopInstance &instance)
     : ISolver(instance),
       // Initialize with a heuristic solution (SPT, as used in Teste...)
       best_schedule(Schedule(instance)) {
-  Schedule spt =
-      DispatchSolver(instance, Rules::shortest_processing_time).solve();
-  Schedule mwr = DispatchSolver(instance, Rules::most_work_remaining).solve();
-  Schedule fcfs =
-      DispatchSolver(instance, Rules::first_come_first_served).solve();
-  Schedule lpt =
-      DispatchSolver(instance, Rules::longest_processing_time).solve();
-  Schedule random = DispatchSolver(instance, Rules::random_operation).solve();
+  Schedule spt = DispatchSolver(instance, Rules::shortest_processing_time)
+                     .solve(std::chrono::steady_clock::time_point::max());
+  Schedule mwr = DispatchSolver(instance, Rules::most_work_remaining)
+                     .solve(std::chrono::steady_clock::time_point::max());
+  Schedule fcfs = DispatchSolver(instance, Rules::first_come_first_served)
+                      .solve(std::chrono::steady_clock::time_point::max());
+  Schedule lpt = DispatchSolver(instance, Rules::longest_processing_time)
+                     .solve(std::chrono::steady_clock::time_point::max());
+  Schedule random = DispatchSolver(instance, Rules::random_operation)
+                        .solve(std::chrono::steady_clock::time_point::max());
 
-  best_schedule = std::min({spt, mwr, fcfs, lpt/*, random*/},
+  best_schedule = std::min({spt, mwr, fcfs, lpt /*, random*/},
                            [](const Schedule &a, const Schedule &b) -> bool {
                              return a.makespan() < b.makespan();
                            });
@@ -214,7 +218,8 @@ BBSolver::BBSolver(const JobShopInstance &instance)
   upper_bound = best_schedule.makespan();
 }
 
-Schedule BBSolver::solve() {
+Schedule BBSolver::solve(
+    std::chrono::steady_clock::time_point deadline) { // <-- Modified
   // Priority queue for Best-First Search (min-heap on lower_bound)
   std::priority_queue<std::shared_ptr<const Node>,
                       std::vector<std::shared_ptr<const Node>>, NodeComparator>
@@ -234,6 +239,11 @@ Schedule BBSolver::solve() {
   queue.push(root_node_ptr);
 
   while (!queue.empty()) {
+    // === TIMEOUT CHECK ===
+    if (std::chrono::steady_clock::now() > deadline) {
+      break; // Time limit reached, return the best solution found so far
+    }
+
     auto current_node_ptr = queue.top();
     queue.pop();
 

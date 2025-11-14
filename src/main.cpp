@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
@@ -21,6 +22,8 @@ std::filesystem::path instance_path;
 Rules::Rule rule_to_use;
 std::string rule_name;
 std::string algorithm_name;
+
+double timeout_seconds = std::numeric_limits<double>::infinity();
 
 const std::map<std::string, Rules::Rule> available_rules = {
     {"shortest_processing_time", Rules::shortest_processing_time},
@@ -68,6 +71,11 @@ void print_usage(const char *prog_name) {
   for (const auto &[name, rule] : available_rules) {
     std::cout << "\t\t  - " << name << std::endl;
   }
+  // TIMEOUT
+  std::cout << "\t-t, --timeout <SECONDS>" << std::endl
+            << "\t\tSpecify a timeout in seconds. Defaults to no limit."
+            << std::endl
+            << std::endl;
   // HELP
   std::cout << "\t-h, --help" << std::endl
             << "\t\tDisplay this help message." << std::endl;
@@ -78,6 +86,7 @@ void read_args(int argc, char *argv[]) {
   rule_name = "shortest_processing_time";
   rule_to_use = available_rules.at(rule_name);
   algorithm_name = "priority_dispatch";
+  timeout_seconds = std::numeric_limits<double>::infinity();
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -111,6 +120,26 @@ void read_args(int argc, char *argv[]) {
         }
       } else {
         std::cerr << "Error: --algorithm option requires an argument."
+                  << std::endl;
+        print_usage(argv[0]);
+        exit(1);
+      }
+    } else if (arg == "-t" || arg == "--timeout") {
+      if (i + 1 < argc) {
+        try {
+          timeout_seconds = std::stod(argv[++i]);
+          if (timeout_seconds <= 0) {
+            std::cerr << "Error: Timeout must be a positive number."
+                      << std::endl;
+            exit(1);
+          }
+        } catch (const std::exception &e) {
+          std::cerr << "Error: Invalid timeout value: " << e.what()
+                    << std::endl;
+          exit(1);
+        }
+      } else {
+        std::cerr << "Error: --timeout option requires an argument."
                   << std::endl;
         print_usage(argv[0]);
         exit(1);
@@ -161,16 +190,19 @@ int main(int argc, char *argv[]) {
   }
 
   // Write CSV header
-  output_file << "Instance,Runtime (ms),Makespan\n";
+  output_file << "Instance,Runtime (ms),Makespan,TimedOut\n";
   std::cout << "Algorithm: " << algorithm_name << std::endl;
   if (algorithm_name == "priority_dispatch") {
     std::cout << "Rule: " << rule_name << std::endl;
   }
-  std::cout << "Output will be saved to " << output_filename << std::endl;
-  std::cout << std::string(60, '-') << std::endl;
+  if (timeout_seconds != std::numeric_limits<double>::infinity()) {
+    std::cout << "Timeout: " << timeout_seconds << "s" << std::endl;
+  }
+  std::cout << std::string(70, '-') << std::endl;
   std::cout << std::left << std::setw(30) << "Instance" << std::setw(15)
-            << "Runtime (ms)" << std::setw(15) << "Makespan" << std::endl;
-  std::cout << std::string(60, '-') << std::endl;
+            << "Runtime (ms)" << std::setw(15) << "Makespan" << std::setw(10)
+            << "TimedOut" << std::endl;
+  std::cout << std::string(70, '-') << std::endl;
 
   for (const auto &file_path : instance_files) {
     try {
@@ -180,8 +212,18 @@ int main(int argc, char *argv[]) {
       JobShopInstance instance = instance_from_file(file_path);
       int makespan = 0;
 
-      auto start_time = std::chrono::high_resolution_clock::now();
+      auto start_time = std::chrono::steady_clock::now();
 
+      std::chrono::steady_clock::time_point deadline; // Declare deadline
+
+      if (timeout_seconds == std::numeric_limits<double>::infinity()) {
+        deadline = std::chrono::steady_clock::time_point::max();
+      } else {
+        auto duration_to_add =
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<double>(timeout_seconds));
+        deadline = start_time + duration_to_add;
+      }
       std::unique_ptr<ISolver> solver;
 
       if (algorithm_name == "priority_dispatch") {
@@ -194,28 +236,32 @@ int main(int argc, char *argv[]) {
 
       // Se o solver foi instanciado, resolve
       if (solver) {
-        Schedule schedule = solver->solve();
+        Schedule schedule = solver->solve(deadline);
         makespan = schedule.makespan();
       } else {
         throw std::runtime_error("Algoritmo não reconhecido.");
       }
 
-      auto end_time = std::chrono::high_resolution_clock::now();
+      auto end_time = std::chrono::steady_clock::now();
       auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                           end_time - start_time)
                           .count();
 
+      // --- Timeout Reporting ---
+      bool timed_out = (end_time >= deadline);
+      std::string timed_out_str = timed_out ? "Yes" : "No";
+
       std::cout << std::setw(15) << duration << std::setw(15) << makespan
-                << std::endl;
-      output_file << instance_name << "," << duration << "," << makespan
-                  << "\n";
+                << std::setw(10) << timed_out_str << std::endl;
+      output_file << instance_name << "," << duration << "," << makespan << ","
+                  << timed_out_str << "\n";
 
     } catch (const std::exception &e) {
       std::cerr << "Error processing file " << file_path.string() << ": "
                 << e.what() << std::endl;
     }
   }
-  std::cout << std::string(60, '-') << std::endl;
+  std::cout << std::string(70, '-') << std::endl;
   std::cout << "Processing complete. Results saved to " << output_filename
             << std::endl;
   output_file.close();

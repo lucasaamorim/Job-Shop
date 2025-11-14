@@ -13,7 +13,6 @@ add_executable(Job-Shop
     src/main.cpp
     src/lib/ScheduleState.cpp
     src/lib/Schedule.cpp
-    src/lib/TesteBranchAndBound.cpp
     src/lib/solvers/BBSolver.cpp
     src/lib/solvers/DispatchSolver.cpp
 )

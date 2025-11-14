@@ -2,7 +2,8 @@
 
 #include <ISolver.h>
 #include <JobShopInstance.h>
-#include <ScheduleState.h> // Needed for DispatchSolver in constructor
+#include <ScheduleState.h>
+#include <chrono>
 
 struct BBSolver : public ISolver {
   /**
@@ -22,7 +23,11 @@ struct BBSolver : public ISolver {
    * @brief Solves the Job Shop Scheduling problem using a
    * Branch and Bound algorithm with a priority queue (Best-First Search).
    *
+   * This method will stop when the deadline is reached and return
+   * the best complete schedule found up to that point.
+   *
+   * @param deadline The absolute time point at which the solver must stop.
    * @return The best Schedule found.
    */
-  Schedule solve() override;
+  Schedule solve(std::chrono::steady_clock::time_point deadline) override;
 };

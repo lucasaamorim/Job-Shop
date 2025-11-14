@@ -4,6 +4,7 @@
 #include <JobShopInstance.h>
 #include <Rules.h>
 #include <ISolver.h>
+#include <chrono>
 
 struct DispatchSolver : public ISolver {
   Rules::Rule rule;
@@ -12,5 +13,5 @@ struct DispatchSolver : public ISolver {
                          const Rules::Rule &rule)
       : ISolver(instance), rule(rule) {}
 
-  Schedule solve() override;
+  Schedule solve(std::chrono::steady_clock::time_point deadline) override;
 };
