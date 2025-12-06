@@ -4,8 +4,8 @@
 #include <Schedule.h>
 #include <solvers/BBSolver.h>
 #include <solvers/DispatchSolver.h>
+#include <solvers/SASolver.h>
 
-#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -39,7 +39,7 @@ const std::map<std::string, Rules::Rule> AppConfig::AVAILABLE_RULES = {
     {"longest_processing_time", Rules::longest_processing_time}};
 
 const std::set<std::string> AppConfig::AVAILABLE_ALGORITHMS = {
-    "priority_dispatch", "branch_and_bound"};
+    "priority_dispatch", "branch_and_bound", "simulated_annealing"};
 
 // --- Function Declarations ---
 
@@ -130,6 +130,9 @@ std::unique_ptr<ISolver> create_solver(const AppConfig &config,
   }
   if (config.algorithm_name == "branch_and_bound") {
     return std::make_unique<BBSolver>(instance);
+  }
+  if (config.algorithm_name == "simulated_annealing") {
+      return std::make_unique<SASolver>(instance);
   }
   // This should be unreachable due to parse_args checks
   throw std::runtime_error("Unknown algorithm: " + config.algorithm_name);

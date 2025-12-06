@@ -1,5 +1,7 @@
+#include <chrono>
 #include <solvers/BBSolver.h>
 #include <solvers/DispatchSolver.h>
+#include <solvers/SASolver.h>
 
 #include <Rules.h>
 #include <algorithm>
@@ -21,6 +23,8 @@ struct Node {
       job_completion_time; //!< Time the last op of each job finished
   int current_makespan;    //!< Max completion time of scheduled ops
   int lower_bound;         //!< The lower bound (max of all job/machine LBs)
+  int n_scheduled; //!< The number of operations that were already scheduled on
+                   //!< the Node
 
   // Store individual LB components for incremental updates
   std::vector<int> lb_per_job;
@@ -41,7 +45,10 @@ struct Node {
 struct NodeComparator {
   bool operator()(const std::shared_ptr<const Node> &a,
                   const std::shared_ptr<const Node> &b) const {
-    // We want a min-heap based on lower_bound
+    // We want a heap that prioritizes deeper nodes and does a tie on the lower
+    // bound.
+    if (a->n_scheduled < b->n_scheduled)
+      return true;
     return a->lower_bound > b->lower_bound;
   }
 };
@@ -273,7 +280,8 @@ BBSolver::BBSolver(const JobShopInstance &instance)
   heuristic_schedules.push_back(
       DispatchSolver(instance, Rules::longest_processing_time)
           .solve(std::chrono::steady_clock::time_point::max()));
-
+  heuristic_schedules.push_back(
+      SASolver(instance).solve(std::chrono::steady_clock::time_point::max()));
   // Find the best schedule among the heuristics
   auto best_it =
       std::min_element(heuristic_schedules.begin(), heuristic_schedules.end(),
@@ -298,6 +306,8 @@ Schedule BBSolver::solve(std::chrono::steady_clock::time_point deadline) {
   root_node->machine_free_time.assign(instance.n_machines, 0);
   root_node->job_completion_time.assign(instance.n_jobs, 0);
   root_node->current_makespan = 0;
+  root_node->n_scheduled = 0;
+
   initialize_lower_bound(*root_node, instance); // Full LB calculation
   queue.push(root_node);
 
@@ -383,6 +393,7 @@ Schedule BBSolver::solve(std::chrono::steady_clock::time_point deadline) {
 
         auto new_node = std::make_shared<Node>(*current_node_ptr);
         new_node->parent = current_node_ptr;
+        new_node->n_scheduled++;
 
         // Update the state for the new child node
         int start_time =
