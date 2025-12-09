@@ -1,6 +1,7 @@
-#include <solvers/SASolver.h>
 #include <ScheduleState.h>
+#include <solvers/SASolver.h>
 
+#include <iostream>
 #include <algorithm>
 #include <cmath>
 
@@ -85,8 +86,84 @@ SASolver::Chromosome SASolver::generate_initial_chrom() {
   return chrom;
 }
 
+void SASolver::auto_tune_parameters(
+    std::chrono::steady_clock::time_point deadline) {
+  // 1. Measure Average Degradation (Warm-up)
+  // ---------------------------------------------------------
+  const int warm_up_iters = 100;
+  long long total_degradation = 0;
+  int degradation_count = 0;
+
+  // Create a temporary state for the random walk
+  Chromosome temp_chrom = generate_initial_chrom();
+  int current_makespan = decode(temp_chrom).makespan();
+
+  auto start_time = std::chrono::steady_clock::now();
+
+  for (int i = 0; i < warm_up_iters; ++i) {
+    Chromosome next_chrom = temp_chrom;
+    get_neighbor(next_chrom);
+    int next_makespan = decode(next_chrom).makespan();
+
+    if (next_makespan > current_makespan) {
+      total_degradation += (next_makespan - current_makespan);
+      degradation_count++;
+    }
+    // In warm-up, we always accept to explore freely
+    current_makespan = next_makespan;
+    temp_chrom = next_chrom;
+  }
+
+  auto end_time = std::chrono::steady_clock::now();
+
+  // 2. Calculate Initial Temperature (Kirkpatrick's Method)
+  // ---------------------------------------------------------
+  double avg_degradation = degradation_count > 0
+                               ? (double)total_degradation / degradation_count
+                               : 1.0;
+
+  // Target acceptance of 80% at start
+  this->temp = -avg_degradation / std::log(0.8);
+
+  // 3. Calculate Stopping Epsilon
+  // ---------------------------------------------------------
+  // We want the probability of accepting a degradation of 1 unit
+  // to be essentially zero (e.g., 1e-5) at the end.
+  double target_end_prob = 1e-5;
+  this->epsilon = -1.0 / std::log(target_end_prob);
+
+  // 4. Calculate Dynamic Cooling Rate based on Time
+  // ---------------------------------------------------------
+  auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         end_time - start_time)
+                         .count();
+  double ms_per_iter = (double)duration_ms / warm_up_iters;
+
+  auto remaining_time = deadline - std::chrono::steady_clock::now();
+  double remaining_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(remaining_time)
+          .count();
+
+  remaining_ms *= 0.95;
+
+  long expected_iterations =
+      (ms_per_iter > 0) ? (long)(remaining_ms / ms_per_iter) : 1000;
+
+  // Formula: alpha = (epsilon / T0) ^ (1 / N)
+  if (expected_iterations > 0) {
+    this->cooling_rate =
+        std::pow(this->epsilon / this->temp, 1.0 / expected_iterations);
+  }
+
+  std::cout << "[AutoTune] T_0: " << this->temp
+            << " | Epsilon: " << this->epsilon
+            << " | Alpha: " << this->cooling_rate
+            << " | Est. Iters: " << expected_iterations << std::endl;
+}
+
 void SASolver::get_neighbor(SASolver::Chromosome &chrom) {
-  if (chrom.size() < 2) return;
+  if (chrom.size() < 2)
+    return;
 
   // Simple swap mutation
   std::uniform_int_distribution<> dist(0, chrom.size() - 1);

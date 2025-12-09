@@ -39,6 +39,9 @@ struct SASolver : public ISolver {
 
   Schedule decode(const Chromosome &chrom);
 
+  void auto_tune_parameters(
+      std::chrono::steady_clock::time_point deadline);
+
   Chromosome generate_initial_chrom();
 
   void get_neighbor(Chromosome &chrom);
