@@ -1,11 +1,12 @@
 #include <ScheduleState.h>
 #include <solvers/SASolver.h>
 
-#include <iostream>
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 
 Schedule SASolver::solve(std::chrono::steady_clock::time_point deadline) {
+  auto_tune_parameters(deadline);
   // 1. Initialization
   Chromosome current_chrom = generate_initial_chrom();
   Schedule current_schedule = decode(current_chrom);
@@ -155,10 +156,10 @@ void SASolver::auto_tune_parameters(
         std::pow(this->epsilon / this->temp, 1.0 / expected_iterations);
   }
 
-  std::cout << "[AutoTune] T_0: " << this->temp
-            << " | Epsilon: " << this->epsilon
-            << " | Alpha: " << this->cooling_rate
-            << " | Est. Iters: " << expected_iterations << std::endl;
+  // std::cout << "[AutoTune] T_0: " << this->temp
+  //           << " | Epsilon: " << this->epsilon
+  //           << " | Alpha: " << this->cooling_rate
+  //           << " | Est. Iters: " << expected_iterations << std::endl;
 }
 
 void SASolver::get_neighbor(SASolver::Chromosome &chrom) {
